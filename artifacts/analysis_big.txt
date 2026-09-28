@@ -1,0 +1,92 @@
+sweep            : artifacts\sweep_big.npz
+dataset          : clinc_oos (test)
+decisions        : 12000  items: 2000  k: [4, 12, 20, 32, 48, 64]
+head_max_len     : 512  (held constant across k by design)
+temperatures     : {'choice:3-5': 1.7601518630981445, 'choice:6-10': 1.0000158548355103, 'score:3-5': 1.2514300346374512, 'noul:2': 1.983399510383606, 'choice:11+': 0.5, 'choice:2': 1.9063563346862793}
+temperatures raw : {'choice:3-5': 1.7601518630981445, 'choice:6-10': 1.0000158548355103, 'score:3-5': 1.2514300346374512, 'noul:2': 1.983399510383606, 'choice:11+': 0.10058280825614929, 'choice:2': 1.9063563346862793}  <- what the checkpoint ships
+note             : the option budget is held constant, but collect_sweep.py renders options with descriptions for k <= 10 and bare label names above, so the k=4 control differs in rendering as well as cardinality.
+
+== per-k calibration and cost ==
+   k       bucket    n     acc    conf    biasC   ECE_C  p_top1    biasP   ECE_P  tok/opt     ms
+   4   choice:3-5 2000   0.990   0.913  -0.0764  0.0764   0.969  -0.0200  0.0201    124.0     42
+  12   choice:11+ 2000   0.978   0.993  +0.0153  0.0154   0.994  +0.0160  0.0166     41.3     43
+  20   choice:11+ 2000   0.967   0.991  +0.0239  0.0239   0.990  +0.0227  0.0232     24.8     86
+  32   choice:11+ 2000   0.954   0.989  +0.0357  0.0364   0.987  +0.0333  0.0346     15.5     42
+  48   choice:11+ 2000   0.904   0.977  +0.0729  0.0749   0.970  +0.0658  0.0666     10.3     44
+  64   choice:11+ 2000   0.797   0.938  +0.1410  0.1411   0.921  +0.1242  0.1274      7.8     44
+  biasC/ECE_C are on laya's own `confidence` (entropy concentration, not a probability); biasP/ECE_P are on the published top probability.
+
+== within-bucket drift (choice:11+, k = [12, 20, 32, 48, 64]) ==
+   k           accuracy  bias_p_top1   bias_conf
+  12   0.9780 [0.972,0.984]      +0.0160     +0.0153
+  20   0.9670 [0.959,0.975]      +0.0227     +0.0239
+  32   0.9535 [0.944,0.963]      +0.0333     +0.0357
+  48   0.9045 [0.891,0.917]      +0.0658     +0.0729
+  64   0.7970 [0.779,0.814]      +0.1242     +0.1410
+
+accuracy vs k : spearman=-1.000  slope=-5.90800  paired p=0.0002
+bias vs k     : spearman=+1.000  slope=+3.59586  paired p=0.0002
+
+== can one recalibration of the published score serve the bucket? ==
+   k     acc  slope_k  resid_1map  resid_slope  resid_perk  ECE_1map  ECE_slope
+  12   0.978    0.411     -0.0138      +0.0000     -0.0000    0.0208     0.0072
+  20   0.967    0.392     -0.0114      +0.0005     +0.0000    0.0149     0.0061
+  32   0.954    0.323     -0.0079      -0.0027     +0.0000    0.0116     0.0095
+  48   0.904    0.293     +0.0021      -0.0030     +0.0000    0.0182     0.0173
+  64   0.797    0.266     +0.0310      +0.0052     +0.0000    0.0396     0.0172
+  per-k slope spread = 1.58x. One shared map reproduces 1.09x [1.04, 1.17] by luck alone over 200 draws, so p=0.005.
+  worst |per-k residual bias| under one map = 0.0310. The same statistic on data simulated from one map gives 0.0062 [0.0023, 0.0118], so p=0.005.
+  -> slope spread: beyond what one shared map produces -> evidence the bucket needs a finer correction.
+  -> residual bias: beyond what one shared map produces -> evidence the bucket needs a finer correction.
+  worst |residual bias|: one map=0.0310  per-k slope+shared intercept=0.0052  fully per-k=0.0000
+  ('fully per-k' can absorb a regime's bias into its own intercept -- it is a ceiling, not a deployable fix. The middle column is the deployable one that still leaves a single threshold meaning the same thing everywhere.)
+
+== one global threshold, per-k outcome ==
+      p_top1 @ target 0.05: threshold=0.6785 pooled coverage=0.966 pooled risk=0.0500 per-k risk spread=42.0x
+      k=  4 coverage=0.977 selective_risk=0.0036
+      k= 12 coverage=0.994 selective_risk=0.0176
+      k= 20 coverage=0.985 selective_risk=0.0249
+      k= 32 coverage=0.984 selective_risk=0.0366
+      k= 48 coverage=0.961 selective_risk=0.0765
+      k= 64 coverage=0.894 selective_risk=0.1504
+  confidence @ target 0.05: threshold=0.8013 pooled coverage=0.949 pooled risk=0.0499 per-k risk spread=136.6x
+      k=  4 coverage=0.897 selective_risk=0.0011
+      k= 12 coverage=0.985 selective_risk=0.0137
+      k= 20 coverage=0.980 selective_risk=0.0214
+      k= 32 coverage=0.980 selective_risk=0.0362
+      k= 48 coverage=0.964 selective_risk=0.0810
+      k= 64 coverage=0.890 selective_risk=0.1522
+
+== published signals, matched selective risk ==
+  target    confidence        p_top1act_probability
+   0.010         0.000         0.000         0.000
+   0.020         0.716         0.730         0.000
+   0.050         0.949         0.966         0.000
+   0.100         1.000         1.000         1.000
+
+    AURC        0.0151        0.0140        0.0267
+  AURC       confidence = 0.0151
+  AURC           p_top1 = 0.0140
+  AURC  act_probability = 0.0267
+  note: act_probability is constant at 1.0000 across all 12000 decisions, so the model's own act head carries no escalation signal on this corpus at any threshold.
+
+== paired comparison vs artifacts\sweep_big_t1.npz (T=1.0) ==
+  temperatures: {'choice:3-5': 1.0, 'choice:6-10': 1.0, 'score:3-5': 1.0, 'noul:2': 1.0, 'choice:11+': 1.0, 'choice:2': 1.0} (override=1.0)
+  matched rows : 12000 of 12000 (k = [4, 12, 20, 32, 48, 64])
+  accuracy did not move at all: 0 of 12000 decisions changed (0.9316 -> 0.9316). Expected when only a rescaling of the logits changed: argmax, and therefore every accuracy number, is invariant. The (item, k) pairing is exact.
+
+   k     acc  p_top1 base  p_top1 new  bias base   bias new  ECE base  ECE new  NLL base  NLL new
+   4   0.990        0.969       0.990    -0.0200    +0.0009    0.0201   0.0052    0.0455   0.0378
+  12   0.978        0.994       0.985    +0.0160    +0.0071    0.0166   0.0124    0.1395   0.0805
+  20   0.967        0.990       0.977    +0.0227    +0.0103    0.0232   0.0135    0.2000   0.1273
+  32   0.954        0.987       0.969    +0.0333    +0.0154    0.0346   0.0282    0.3617   0.1952
+  48   0.904        0.970       0.930    +0.0658    +0.0254    0.0666   0.0490    0.5773   0.3203
+  64   0.797        0.921       0.834    +0.1242    +0.0370    0.1274   0.0919    0.9679   0.5254
+  overall ECE 0.0405 -> 0.0299 | bias +0.0403 -> +0.0160 | NLL 0.3820 -> 0.2144
+  bias trend across k, base     : spearman=+1.000 p=0.0002
+  bias trend across k, T=1.0    : spearman=+1.000 p=0.0002
+  bias trend within [12, 20, 32, 48, 64], base    : spearman=+1.000 p=0.0002
+  bias trend within [12, 20, 32, 48, 64], T=1.0    : spearman=+1.000 p=0.0002
+  A drift that survives a change of temperature is not a temperature artifact; it is the model's own confidence curve bending with k. A drift that vanishes was the bucket temperature's doing.
+
+saved: artifacts\sweep_big_analysis.json

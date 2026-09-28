@@ -1,0 +1,131 @@
+{
+  "n": 1000,
+  "accuracy": 0.927,
+  "head_aurc": 0.021622276194531848,
+  "confidence_aurc": 0.014908418089820089,
+  "aurc_improvement": -0.00671385810471176,
+  "frontier": [
+    {
+      "target_risk": 0.01,
+      "head_coverage": 0.316,
+      "confidence_coverage": 0.0,
+      "coverage_gain": 0.316,
+      "head_selective_risk": 0.00949367088607595,
+      "confidence_selective_risk": NaN
+    },
+    {
+      "target_risk": 0.02,
+      "head_coverage": 0.75,
+      "confidence_coverage": 0.798,
+      "coverage_gain": -0.04800000000000004,
+      "head_selective_risk": 0.02,
+      "confidence_selective_risk": 0.018796992481203006
+    },
+    {
+      "target_risk": 0.05,
+      "head_coverage": 0.932,
+      "confidence_coverage": 0.93,
+      "coverage_gain": 0.0020000000000000018,
+      "head_selective_risk": 0.04935622317596566,
+      "confidence_selective_risk": 0.04946236559139785
+    },
+    {
+      "target_risk": 0.1,
+      "head_coverage": 1.0,
+      "confidence_coverage": 1.0,
+      "coverage_gain": 0.0,
+      "head_selective_risk": 0.073,
+      "confidence_selective_risk": 0.073
+    }
+  ],
+  "conformal": {
+    "alpha": 0.01,
+    "source": "calibration-split threshold, measured on held-out rows",
+    "vacuous": 0.0,
+    "threshold": 0.9875863790512085,
+    "coverage": 0.332,
+    "empirical_unconditional_risk": 0.004,
+    "empirical_selective_risk": 0.012048192771084338
+  },
+  "confidence_summary": {
+    "ece": 0.05954360000000006,
+    "brier": 0.06481830840000001,
+    "nll": 0.45999817812015387,
+    "mean_score": 0.9849266,
+    "accuracy": 0.927
+  },
+  "head_summary": {
+    "ece": 0.030904027253389338,
+    "brier": 0.057110506454018606,
+    "nll": 0.2003350464420193,
+    "mean_score": 0.9269411407411099,
+    "accuracy": 0.927
+  },
+  "calibration_confidence": [
+    {
+      "bucket": ">20",
+      "n": 1000,
+      "accuracy": 0.927,
+      "mean_score": 0.9849266,
+      "bias": 0.05792659999999994,
+      "ece": 0.05954360000000006
+    }
+  ],
+  "calibration_head": [
+    {
+      "bucket": ">20",
+      "n": 1000,
+      "accuracy": 0.927,
+      "mean_score": 0.9269411407411099,
+      "bias": -5.8859258890153754e-05,
+      "ece": 0.030904027253389338
+    }
+  ],
+  "scorer_comparison": {
+    "targets": [
+      0.01,
+      0.02,
+      0.05,
+      0.1
+    ],
+    "coverage": {
+      "head": [
+        0.316,
+        0.75,
+        0.932,
+        1.0
+      ],
+      "confidence": [
+        0.0,
+        0.798,
+        0.93,
+        1.0
+      ],
+      "p_top1": [
+        0.0,
+        0.807,
+        0.932,
+        1.0
+      ],
+      "p_top1+finer_temp": [
+        0.0,
+        0.807,
+        0.932,
+        1.0
+      ],
+      "act_probability": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    "aurc": {
+      "head": 0.021622276194531848,
+      "confidence": 0.014908418089820089,
+      "p_top1": 0.01798676206132605,
+      "p_top1+finer_temp": 0.01798676206132605,
+      "act_probability": 0.04930272569662829
+    }
+  }
+}

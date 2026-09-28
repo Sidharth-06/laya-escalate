@@ -1,0 +1,43 @@
+{
+  "form": "affine on the logit scale, applied to the published top-1 probability: p_cal = sigmoid(slope[k] * logit(p_top1) + offset)",
+  "slope_by_options": {
+    "4": 1.9737742093090416,
+    "12": 0.43434863641953886,
+    "20": 0.3941431593948714,
+    "32": 0.37817767119486434,
+    "48": 0.3071506036939284,
+    "64": 0.25228853869396317
+  },
+  "shared_offset": -0.234014137711,
+  "offset_is_shared": true,
+  "slope_spread": 7.8234794950527435,
+  "n_parameters": 7,
+  "negative_control": {
+    "what": "a bare per-option-count temperature: a power transform on the published probabilities, with no offset",
+    "temperatures_by_options": {
+      "4": 1.0692867742120609,
+      "12": 1.4146161907070234,
+      "20": 1.5582869503250543,
+      "32": 1.5538543141572658,
+      "48": 1.5792127740474349,
+      "64": 1.6360574251558933
+    },
+    "temperature_spread": 1.53004550754074,
+    "applied_by_checkpoint": {
+      "4": 1.7601518630981445,
+      "12": 0.5,
+      "20": 0.5,
+      "32": 0.5,
+      "48": 0.5,
+      "64": 0.5
+    },
+    "verdict": "not a fix. The fitted temperatures barely differ from each other, and this form does not beat one temperature for the whole bucket on ECE. Recorded because it is the obvious guess -- Laya's own repair mechanism, made finer."
+  },
+  "fit": {
+    "source": "artifacts\\sweep_big.npz",
+    "objective": "per-option-count logistic slope on logit(p_top1), one shared intercept",
+    "l2": 0.0,
+    "train_rows": 6000
+  },
+  "caution": "Fitted to this checkpoint and the clinc_oos/plus English intents. Refit before trusting these on other traffic."
+}

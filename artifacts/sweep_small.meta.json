@@ -1,0 +1,23 @@
+{
+  "dataset": "clinc_oos",
+  "items": 200,
+  "k": [
+    4,
+    12,
+    20,
+    32,
+    64
+  ],
+  "head_max_len": 512,
+  "max_len": 512,
+  "seed": 0,
+  "temperature_by_options": {
+    "choice:3-5": 1.7601518630981445,
+    "choice:6-10": 1.0000158548355103,
+    "score:3-5": 1.2514300346374512,
+    "noul:2": 1.983399510383606,
+    "choice:11+": 0.5,
+    "choice:2": 1.9063563346862793
+  },
+  "cost_optimal_threshold": 0.8333333333333334
+}

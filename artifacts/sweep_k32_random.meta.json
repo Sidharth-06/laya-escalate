@@ -1,0 +1,30 @@
+{
+  "dataset": "clinc_oos",
+  "items": 2000,
+  "k": [
+    32
+  ],
+  "head_max_len": 512,
+  "max_len": 512,
+  "seed": 0,
+  "distractors": "random",
+  "describe": "auto",
+  "temperature_by_options": {
+    "choice:3-5": 1.7601518630981445,
+    "choice:6-10": 1.0000158548355103,
+    "score:3-5": 1.2514300346374512,
+    "noul:2": 1.983399510383606,
+    "choice:11+": 0.5,
+    "choice:2": 1.9063563346862793
+  },
+  "temperature_by_options_raw": {
+    "choice:3-5": 1.7601518630981445,
+    "choice:6-10": 1.0000158548355103,
+    "score:3-5": 1.2514300346374512,
+    "noul:2": 1.983399510383606,
+    "choice:11+": 0.10058280825614929,
+    "choice:2": 1.9063563346862793
+  },
+  "temperature_override": null,
+  "cost_optimal_threshold": 0.8333333333333334
+}

@@ -1,0 +1,97 @@
+split by item   : 2000 items, none spanning two splits (train 6000 / calib 3000 / test 3000 decisions)
+data source      : artifacts\sweep_big.npz
+head parameters  : 5543
+best val AURC    : 0.0053 (epoch 7)
+policy threshold : 0.9748
+policy guarantee : E[wrong-and-auto-executed rate] <= 0.010 (conformal risk control, n=3000)
+policy coverage  : 0.637 on held-out test
+
+== held-out evaluation ==
+decisions        : 3000
+base accuracy    : 0.9353
+AURC  head=0.0106  confidence=0.0138  gain=+0.0032
+
+coverage at matched selective risk (higher is better)
+  target     head     conf     gain
+   0.010    0.701    0.640   +0.061
+   0.020    0.891    0.729   +0.162
+   0.050    0.975    0.967   +0.008
+   0.100    1.000    1.000   +0.000
+
+conformal@alpha=0.010: threshold=0.9748 coverage=0.637 measured uncond risk=0.0063 (bound=0.0100)
+  threshold source: calibration-split threshold, measured on held-out rows
+
+== calibration by label-space regime ==
+  bucket      n     acc  ECE conf  ECE head  bias conf  bias head
+     <=4    500   0.990    0.0785    0.0094    -0.0785    -0.0089
+   11-20   1000   0.979    0.0151    0.0103    +0.0131    +0.0044
+     >20   1500   0.888    0.0826    0.0236    +0.0826    +0.0166
+
+global ECE   confidence=0.0361  head=0.0123  (2.9x better)
+global Brier confidence=0.0531  head=0.0413
+
+== head vs the signals the model ships ==
+  target          head    confidence        p_top1p_top1+finer_tempone temperatureper-k temperatureact_probability
+   0.010         0.701         0.640         0.000         0.737         0.589         0.773         0.000
+   0.020         0.891         0.729         0.748         0.888         0.727         0.885         0.000
+   0.050         0.975         0.967         0.975         0.976         0.976         0.976         0.000
+   0.100         1.000         1.000         1.000         1.000         1.000         1.000         1.000
+
+    AURC        0.0106        0.0138        0.0128        0.0097        0.0135        0.0100        0.0222
+  coverage gain over       confidence = +0.061 +0.162 +0.008 +0.000
+  coverage gain over           p_top1 = +0.701 +0.143 +0.001 +0.000
+  coverage gain over p_top1+finer_temp = -0.036 +0.003 -0.001 +0.000
+  coverage gain over  one temperature = +0.112 +0.165 -0.001 +0.000
+  coverage gain over per-k temperature = -0.072 +0.006 -0.001 +0.000
+  coverage gain over  act_probability = +0.701 +0.891 +0.975 +0.000
+
+== is a finer temperature enough? (fit on train, measured on held-out) ==
+  bucket      n     acc  ECE p_top1  ECE +temp  bias p_top1  bias +temp
+     <=4    500   0.990      0.0206     0.0118      -0.0206     -0.0028
+   11-20   1000   0.979      0.0151     0.0104      +0.0130     -0.0000
+     >20   1500   0.888      0.0768     0.0260      +0.0754     +0.0168
+
+global ECE  p_top1=0.0398  +finer temp=0.0126  head=0.0123
+global Brier p_top1=0.0487  +finer temp=0.0407  head=0.0413
+slope spread across k = 7.82x  k=4:1.974  k=12:0.434  k=20:0.394  k=32:0.378  k=48:0.307  k=64:0.252
+
+== the bucket itself: choice:11+ on held-out rows (n=2500) ==
+                    scorer      ECE      bias     AURC   cov@1%   cov@2%    P==1
+       p_top1 as published   0.0515   +0.0504   0.0112    0.000    0.857   80.7%
+          T=1.0 (no refit)   0.0358   +0.0234   0.0113    0.744    0.853   69.2%
+           one temperature   0.0326   -0.0048   0.0113    0.692    0.853    0.0%
+         per-k temperature   0.0338   -0.0049   0.0115    0.744    0.854    0.0%
+ per-k logistic (7 params)   0.0147   +0.0101   0.0111    0.696    0.852    0.0%
+    escalation head (5543)   0.0155   +0.0117   0.0127    0.555    0.854    0.0%
+  (restricted to k >= 11; k=4 is a different bucket and is excluded)
+
+== one temperature per option count, vs ONE for the whole bucket ==
+   (both fit on train, both applied to the same held-out rows)
+   restricted to k >= 12, the option counts inside choice:11+. k=4 is a
+   different bucket; the shared fit never saw it, so it is not scored here.
+   k     n     acc   ship  T=1.0  T shared   T per-k |  ECE ship  ECE shrd  ECE per-k |  bias ship  bias shrd  bias per-k
+  12   500   0.984  0.500  1.000     1.583     1.415 |    0.0134    0.0138     0.0191 |    +0.0100    -0.0066     -0.0034
+  20   500   0.974  0.500  1.000     1.583     1.558 |    0.0171    0.0185     0.0188 |    +0.0159    -0.0072     -0.0065
+  32   500   0.960  0.500  1.000     1.583     1.554 |    0.0361    0.0298     0.0292 |    +0.0307    +0.0023     +0.0036
+  48   500   0.920  0.500  1.000     1.583     1.579 |    0.0617    0.0555     0.0556 |    +0.0550    -0.0164     -0.0161
+  64   500   0.784  0.500  1.000     1.583     1.636 |    0.1450    0.0797     0.0853 |    +0.1405    +0.0041     -0.0021
+
+  pooled over choice:11+ (k >= 11), n=2500:
+                                   ECE    Brier      bias
+          p_top1 as published   0.0515   0.0561   +0.0504
+             T=1.0 (no refit)   0.0358   0.0507   +0.0234
+     one temperature (fitted)   0.0326   0.0531   -0.0048
+   per-k temperature (fitted)   0.0338   0.0530   -0.0049
+    per-k logistic (7 params)   0.0147   0.0467   +0.0101
+       escalation head (5543)   0.0155   0.0476   +0.0117
+  per-option-count temperatures span 1.16x (1.415 .. 1.636); the checkpoint applied a single 0.500 to all of them.
+  ONE temperature (1.583) for the whole bucket vs one per option count differ by 0.0012 ECE, and the per-count values span only 1.16x
+  -> a finer *temperature* grid is not the fix. A temperature is a slope
+     through the origin on the logit scale, so it cannot express the offset
+     the data wants. The affine form (per-k slope + one shared offset) is
+     scored above as 'per-k logistic'.
+  note: act_probability is constant at 1.0000 on the held-out rows, so it cannot gate anything at any threshold.
+saved temperatures: artifacts\real_big\temperatures.json
+
+saved bundle     : artifacts\real_big\escalation_head.pt (25.9 KB)
+saved report     : artifacts\real_big\report.json
