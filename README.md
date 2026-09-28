@@ -1,21 +1,156 @@
-# Laya's `choice:11+` bucket holds every question from 11 to 64+ options, and gives them one temperature
+# laya-escalate
 
-A measurement of [`convaiinnovations/laya`](https://huggingface.co/convaiinnovations/laya)
-across **12,000 tagged intent decisions**, plus a reproducible diagnostic and the few
-floats that repair the worst of what it finds.
+**Calibration auditing for System One decision models: find where published
+confidence is wrong, and ship the cheapest sufficient repair.**
 
-Laya scores a choice question by dividing its logits by a temperature chosen from a
-`(question type, option-count)` bucket. The buckets are `{2, 3-5, 6-10, 11+}` — so a
-12-option question and a 64-option question share **one** temperature. This repository
-measures what that costs in both fields Laya exposes — the documented `confidence`
-(a **16.9x** overconfidence ramp) and the underlying `p_top1` (a **7.8x** one) — and shows
-what one temperature per option count pays back, and what it does not.
+A System One decision model ([`convaiinnovations/laya`](https://huggingface.co/convaiinnovations/laya))
+answers a typed multiple-choice question in a single forward pass. It is fast and
+cheap, and it is sometimes wrong — the interesting question is whether it *knows*
+when. This repository measures that across **12,000 tagged intent decisions**,
+finds two distinct calibration defects, and ships the few floats that repair the
+worst of what it finds. It also contains `laya_escalate`, a small Python package
+that implements the measurement, the repairs, and the escalation policy.
 
-Everything below is measured on real Laya runs. Every number is re-derivable on CPU
-from the committed files in [`artifacts/`](artifacts/) — see
-[Reproduce](#reproduce).
+Everything here is measured on real Laya runs. Every number is re-derivable on
+CPU from the committed files in [`artifacts/`](artifacts/) — see
+[Reproduce](#12-reproduce).
 
 ---
+
+## TL;DR
+
+**The defect.** Laya picks its temperature from a `(question type, option-count)`
+bucket. The `choice:11+` bucket — every question with 11 to 64+ options — ships a
+temperature of `0.1006`, which Laya's own loader refuses to apply and clamps to
+`0.5`. Inside that one bucket, accuracy falls from **0.978** (12 options) to
+**0.797** (64 options) while published confidence barely moves: Laya reports
+certainty on **92%** of 12-option questions and **54%** of 64-option questions,
+where it is right 98% and 80% of the time. The documented `confidence` field is
+worse, overstating accuracy by a **16.9x** ramp across the same bucket.
+
+**The fix.** Not a finer temperature grid, and not a learned head. Seven floats —
+one logistic slope per option count on `logit(p_top1)` plus one shared offset —
+cut global ECE `0.0398 → 0.0126`, beat both alternatives on AURC, and deploy as a
+`dict` with zero decisions changed and no retraining.
+
+| k | bucket | accuracy | mean published `p_top1` | published as exactly 1.0000 |
+|---:|---|---:|---:|---:|
+| 4 | `choice:3-5` | 0.990 | 0.969 | 9.8% |
+| **12** | **`choice:11+`** | **0.978** | **0.994** | **92.2%** |
+| **64** | **`choice:11+`** | **0.797** | **0.921** | **54.4%** |
+
+And the repair, measured on 3,000 held-out decisions:
+
+| scorer | params | AURC | coverage @1% | global ECE |
+|---|---:|---:|---:|---:|
+| **`p_top1` + per-k slope + one shared offset** | **7** | **0.0097** | **0.737** | 0.0126 |
+| one temperature per option count | 6 | 0.0100 | 0.773 | — |
+| escalation head (5,543-param MLP) | 5,543 | 0.0106 | 0.701 | **0.0123** |
+| `p_top1` as Laya publishes it | 0 | 0.0128 | 0.000 | 0.0398 |
+
+Full tables and the reasoning behind every row are in
+[§2](#2-what-that-constant-publishes) and [§4](#4-seven-floats-fix-it--but-they-have-to-be-the-right-seven).
+
+## Quickstart
+
+Install (from a clone of this repo; not yet on PyPI):
+
+```bash
+pip install -e ".[dev]"     # numpy + torch; pytest for the test suite
+```
+
+Run the test suite — CPU only, no GPU, no model download:
+
+```bash
+USE_TF=0 python -m pytest -q          # 99 tests
+```
+
+Use the package to audit and gate your own System One model:
+
+```python
+import numpy as np
+from laya_escalate import (
+    DecisionRecord, FeatureContext, featurize_many,
+    split_dataset, train_head, fit_conformal_policy,
+    evaluate, format_report,
+)
+
+# One record per decision: the published distribution, and (at fit/eval time)
+# whether the argmax was actually correct.
+records = [
+    DecisionRecord(probs=probs_i, qtype="choice", correct=was_correct_i,
+                   n_options=len(probs_i))
+    for probs_i, was_correct_i in collected_decisions
+]
+
+x = featurize_many(records, FeatureContext())
+correct = np.array([r.correct for r in records], dtype=bool)
+
+# Three-way split: train the head, fit the threshold, measure held-out.
+# Pass groups (e.g. item ids) so one item never spans two splits -- the
+# conformal bound assumes calibration and test rows are exchangeable.
+splits = split_dataset(len(records), groups=item_ids)
+
+result = train_head(x[splits.train_idx], correct[splits.train_idx])
+calib_scores = result.head.score(x[splits.calib_idx], result.normalizer)
+policy = fit_conformal_policy(calib_scores, ~correct[splits.calib_idx], alpha=0.01)
+
+test_scores = result.head.score(x[splits.test_idx], result.normalizer)
+report = evaluate(
+    test_scores,
+    np.array([r.p_top1 for r in records])[splits.test_idx],
+    correct[splits.test_idx],
+    conformal_policy=policy,
+)
+print(format_report(report))
+```
+
+Re-derive the published numbers from the committed artifacts (no model needed):
+
+```bash
+USE_TF=0 python scripts/analyze_sweep.py --sweep artifacts/sweep_big.npz \
+    --compare artifacts/sweep_big_t1.npz --compare-label "T=1.0"
+```
+
+## How to read this README
+
+One-line glossary, because the terms come fast:
+
+* **k** — the number of options in a question. The axis everything here varies on.
+* **temperature `T`** — logits are divided by `T` before the softmax; smaller `T`
+  means sharper, more confident probabilities. Laya picks one `T` per bucket.
+* **`p_top1`** — the model's top-1 probability, read off the logits. Not the field
+  Laya documents.
+* **`confidence`** — the field Laya *documents*: normalised entropy,
+  `1 − H(p) / log k`. A different curve from `p_top1`, audited separately in [§5](#5-the-field-laya-actually-documents-is-worse-than-p_top1).
+* **bias** — mean published confidence minus accuracy. Positive = overconfident.
+* **ECE** — expected calibration error; how far the published number is from the
+  true correctness rate, lower is better.
+* **AURC** — area under the risk–coverage curve; the ranking quality of a score
+  used to decide what to escalate, lower is better.
+
+The document is in three parts. **Part I** is the finding: what is broken ([§1](#1-the-buckets-own-loader-says-it-is-broken)–[§3](#3-the-clamp-is-a-second-independent-defect))
+and the cheapest repair that actually works ([§4](#4-seven-floats-fix-it--but-they-have-to-be-the-right-seven)–[§6](#6-the-learned-head-is-a-negative-result--keep-it-out)).
+**Part II** is mechanism and robustness: why the accuracy falls ([§7](#7-why-it-is-cardinality-and-specifically-not-token-starvation)),
+what a temperature cannot reach ([§8](#8-the-part-no-recalibration-of-p_top1-reaches-confusability-at-fixed-k)),
+and how much data each claim needs ([§9](#9-how-much-data-the-claim-needs--a-cautionary-pair)–[§11](#11-two-more-things-worth-knowing-before-you-deploy-this)).
+**Part III** is reproduce and limitations.
+
+**Contents:** [1](#1-the-buckets-own-loader-says-it-is-broken) ·
+[2](#2-what-that-constant-publishes) · [3](#3-the-clamp-is-a-second-independent-defect) ·
+[4](#4-seven-floats-fix-it--but-they-have-to-be-the-right-seven) ·
+[5](#5-the-field-laya-actually-documents-is-worse-than-p_top1) ·
+[6](#6-the-learned-head-is-a-negative-result--keep-it-out) ·
+[7](#7-why-it-is-cardinality-and-specifically-not-token-starvation) ·
+[8](#8-the-part-no-recalibration-of-p_top1-reaches-confusability-at-fixed-k) ·
+[9](#9-how-much-data-the-claim-needs--a-cautionary-pair) ·
+[10](#10-guarantees-are-sample-size-dependent-too) ·
+[11](#11-two-more-things-worth-knowing-before-you-deploy-this) ·
+[12 Reproduce](#12-reproduce) · [13 Limitations](#13-limitations)
+
+---
+
+## Part I — What is broken, and the cheapest sufficient repair
 
 ## 1. The bucket's own loader says it is broken
 
@@ -244,6 +379,10 @@ temperature, and is worse on the metrics that decide whether you can gate on it.
 correct functional form beat the larger model class. The code stays in the repository
 because that is the finding, not because it is the fix.
 
+---
+
+## Part II — Mechanism, robustness, and deployment cautions
+
 ## 7. Why it is cardinality, and specifically not token starvation
 
 The obvious mechanism story is that at high `k` each option gets less of the shared
@@ -374,7 +513,14 @@ why that note exists.
   guarantee is real and it is a marginal statement; it does not cover the regime you
   happen to be serving.
 
+---
+
+## Part III — Reproducing the numbers
+
 ## 12. Reproduce
+
+The test suite first — it is the fastest check that the machinery works, and it runs on
+CPU with no downloads:
 
 ```bash
 USE_TF=0 python -m pytest -q          # 99 tests, no GPU, no downloads
